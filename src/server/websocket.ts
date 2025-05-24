@@ -45,6 +45,53 @@ function getSurroundingChunks(chunkX: number, chunkY: number) {
   return returnChunks;
 }
 
+function sendPeerCursorUpdate(peerId: string, close: boolean) {
+  const peersUpdateMsg: SocketMessage<Updates> = {
+    type: 'updates',
+    data: [
+      {
+        type: 'player',
+        id: peerId,
+        x: sessions[peerId].x,
+        y: sessions[peerId].y,
+        color: close ? 'CLOSE' : '#000000',
+      },
+    ],
+  };
+  Object.entries(sessions).forEach(([id, session]) => {
+    if (
+      id != peerId &&
+      Math.abs(session.x - sessions[peerId].x) < 32 * 3 &&
+      Math.abs(session.y - sessions[peerId].y) < 32 * 3
+    ) {
+      session.peer.send(peersUpdateMsg);
+    }
+  });
+}
+
+function sendSurroundingCursorUpdate(peerId: string) {
+  const peersUpdateMsg: SocketMessage<Updates> = {
+    type: 'updates',
+    data: [],
+  };
+  Object.entries(sessions).forEach(([id, session]) => {
+    if (
+      id != peerId &&
+      Math.abs(session.x - sessions[peerId].x) < 32 * 3 &&
+      Math.abs(session.y - sessions[peerId].y) < 32 * 3
+    ) {
+      peersUpdateMsg.data.push({
+        type: 'player',
+        id,
+        x: session.x,
+        y: session.y,
+        color: '#000000',
+      });
+    }
+  });
+  sessions[peerId].peer.send(peersUpdateMsg);
+}
+
 export default eventHandler({
   handler() {},
   websocket: {
@@ -63,10 +110,25 @@ export default eventHandler({
           },
         })
       );
+      sendSurroundingCursorUpdate(peer.id);
+      sendPeerCursorUpdate(peer.id, false);
     },
     async message(peer, msg) {
       const message: SocketMessage = JSON.parse(msg.text());
       // console.log('msg', peer.id, message);
+
+      if (message.type == 'refresh') {
+        peer.send(
+          JSON.stringify({
+            type: 'newChunks',
+            data: {
+              chunks: getSurroundingChunks(0, 0),
+              players: [],
+            },
+          })
+        );
+        sendSurroundingCursorUpdate(peer.id);
+      }
 
       if (message.type == 'updates') {
         const data: Updates = message.data;
@@ -101,12 +163,14 @@ export default eventHandler({
 
             sessions[peer.id].x += update.changeX;
             sessions[peer.id].y += update.changeY;
+
+            sendPeerCursorUpdate(peer.id, false);
           }
           if (update.type == 'draw') {
             let chunk = chunks.find(
               (chunk) => chunk.id == update.chunkX + ',' + update.chunkY
             );
-            console.log(update.x, update.y);
+            // console.log(update.x, update.y);
             if (chunk) chunk.grid[update.x][update.y] = update.color;
 
             const peersUpdateMsg: SocketMessage<Updates> = {
@@ -129,6 +193,7 @@ export default eventHandler({
     },
     async close(peer, details) {
       console.log('close', peer.id);
+      sendPeerCursorUpdate(peer.id, true);
       delete sessions[peer.id];
     },
     async error(peer, error) {

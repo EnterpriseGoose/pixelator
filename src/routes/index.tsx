@@ -43,7 +43,16 @@ export default function Index() {
   const [spacePressed, setSpacePressed] = createSignal(false);
   const [moving, setMoving] = createSignal(false);
   const [socket, setSocket] = createSignal<WebSocket>();
-  const [otherPlayers, setOtherPlayers] = createStore<Player[]>([]);
+  const [otherPlayers, setOtherPlayers] = createStore<{ [id: string]: Player }>(
+    {}
+  );
+  const [cursorLocations, setCursorLocations] = createSignal<String[]>([]);
+
+  createEffect(() => {
+    setCursorLocations(
+      Object.values(otherPlayers).map((player) => player.x + ',' + player.y)
+    );
+  });
 
   const setSpace = (x: number, y: number, value: string) => {
     setGrid(
@@ -59,7 +68,8 @@ export default function Index() {
   let lastMove = 0;
 
   const move = () => {
-    if (Date.now() - lastMove < 50) return;
+    // console.log('trying ' + (Date.now() - lastMove) + ' ms later');
+    // if (Date.now() - lastMove < 50) return;
     const updates: Updates = [];
     let moveUpdate: MoveUpdate = { type: 'move', changeX: 0, changeY: 0 };
     if (keysPressed.w) {
@@ -94,10 +104,72 @@ export default function Index() {
       });
     }
 
-    console.log(Date.now() - lastMove);
+    // console.log(Date.now() - lastMove);
 
     socket()?.send(JSON.stringify({ type: 'updates', data: updates }));
     lastMove = Date.now();
+  };
+
+  const getNewWS = () => {
+    const ws = new WebSocket(
+      `ws${window.location.protocol.includes('s') ? 's' : ''}://${
+        window.location.host
+      }/game`
+    );
+    ws.onopen = () => {
+      console.log('socket open');
+    };
+    ws.onmessage = async (e: MessageEvent) => {
+      const messageTime = Date.now();
+      // console.log('socket got message');
+      const msg = JSON.parse(e.data) as SocketMessage;
+      // console.log(msg);
+      // console.log('Message time', Date.now() - messageTime);
+      if (msg.type == 'newChunks') {
+        // console.log('setting chunks...');
+        // console.log('Message time', Date.now() - messageTime);
+        let tempChunks = grid
+          .concat(msg.data.chunks)
+          .filter(
+            (chunk) =>
+              Math.abs(chunk.x - Math.floor(x() / 32)) <= 2 &&
+              Math.abs(chunk.y - Math.floor(y() / 32)) <= 2
+          );
+        // console.log('Message time', Date.now() - messageTime);
+        setGrid(tempChunks);
+        // console.log('Message time', Date.now() - messageTime);
+        setLoadedCenter([Math.floor(x() / 32), Math.floor(y() / 32)]);
+        // console.log('Message time', Date.now() - messageTime);
+        // console.log(grid);
+        // console.log(loadedCenter());
+        // console.log('Message time', Date.now() - messageTime);
+      }
+      if (msg.type == 'updates') {
+        const updates = msg.data as Updates;
+        updates.forEach((update) => {
+          if (update.type == 'draw') {
+            setSpace(
+              update.chunkX * 32 + update.x,
+              update.chunkY * 32 + update.y,
+              update.color
+            );
+          }
+          if (update.type == 'player') {
+            if (update.color == 'CLOSE') {
+              setOtherPlayers(update.id, undefined!);
+            } else {
+              setOtherPlayers(update.id, {
+                id: update.id,
+                x: update.x,
+                y: update.y,
+                color: update.color,
+              });
+            }
+          }
+        });
+      }
+    };
+    return ws;
   };
 
   onMount(() => {
@@ -152,49 +224,30 @@ export default function Index() {
       }
     };
 
-    const ws = new WebSocket('ws://localhost:3100/game');
-    ws.onopen = () => {
-      console.log('socket open');
-    };
-    ws.onmessage = async (e: MessageEvent) => {
-      const messageTime = Date.now();
-      console.log('socket got message');
-      const msg = JSON.parse(e.data) as SocketMessage;
-      console.log(msg);
-      console.log('Message time', Date.now() - messageTime);
-      if (msg.type == 'newChunks') {
-        console.log('setting chunks...');
-        console.log('Message time', Date.now() - messageTime);
-        let tempChunks = grid
-          .concat(msg.data.chunks)
-          .filter(
-            (chunk) =>
-              Math.abs(chunk.x - Math.floor(x() / 32)) <= 2 &&
-              Math.abs(chunk.y - Math.floor(y() / 32)) <= 2
-          );
-        console.log('Message time', Date.now() - messageTime);
-        setGrid(tempChunks);
-        console.log('Message time', Date.now() - messageTime);
-        setLoadedCenter([Math.floor(x() / 32), Math.floor(y() / 32)]);
-        console.log('Message time', Date.now() - messageTime);
-        console.log(grid);
-        console.log(loadedCenter());
-        console.log('Message time', Date.now() - messageTime);
+    const ws = getNewWS();
+
+    setInterval(() => {
+      if (!socket()) {
+        const ws = getNewWS();
+        setSocket(ws);
       }
-      if (msg.type == 'updates') {
-        const updates = msg.data as Updates;
-        updates.forEach((update) => {
-          if (update.type == 'draw') {
-            setSpace(
-              update.chunkX * 32 + update.x,
-              update.chunkY * 32 + update.y,
-              update.color
-            );
-          }
-        });
+      if (grid.length === 0) {
+        socket()?.send(JSON.stringify({ type: 'refresh' }));
       }
-    };
+    }, 5000);
+
     setSocket(ws);
+
+    // document.onanimationstart = (e) => {
+    //   if (e.animationName == 'blink') {
+    //     document
+    //       .getAnimations()
+    //       .filter((animation: any) => animation.animationName == 'blink')
+    //       .forEach((anim) => {
+    //         anim.startTime = 0;
+    //       });
+    //   }
+    // };
   });
 
   createEffect(() => {
@@ -211,7 +264,7 @@ export default function Index() {
               clearInterval(intervalID);
             }
           }, 100);
-        }, 50);
+        }, 100);
       }, 10);
     } else if (!Object.values(keysPressed).includes(true) && moving()) {
       setMoving(false);
@@ -312,7 +365,11 @@ export default function Index() {
                     {(space, j) => (
                       <div
                         class={`${styles.space} ${
-                          i() + chunk.x * 32 == x() && j() + chunk.y * 32 == y()
+                          (i() + chunk.x * 32 == x() &&
+                            j() + chunk.y * 32 == y()) ||
+                          cursorLocations().includes(
+                            i() + chunk.x * 32 + ',' + (j() + chunk.y * 32)
+                          )
                             ? styles.cursor
                             : ''
                         }`}

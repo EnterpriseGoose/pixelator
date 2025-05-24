@@ -8,7 +8,7 @@ interface Chunk {
 }
 
 interface SocketMessage<dataType = any> {
-  type: 'updates' | 'newChunks';
+  type: 'updates' | 'newChunks' | 'refresh';
   data: dataType;
 }
 
@@ -39,7 +39,7 @@ interface PlayerUpdate extends Update {
   color: string;
 }
 
-type Updates = (MoveUpdate | DrawUpdate)[];
+type Updates = (MoveUpdate | DrawUpdate | PlayerUpdate)[];
 
 interface Player {
   id: string;

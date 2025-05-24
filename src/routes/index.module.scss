@@ -89,8 +89,10 @@
 			content: "";
 			position: absolute;
 			inset: 0;
-			background-color: black;
-			animation: blink 1s infinite;
+			background-color: #583cf8;
+			&:global {
+				animation: blink 1s infinite;
+			}
 		}
 	}
 
@@ -111,21 +113,6 @@
 		left: 0;
 		right: 0;
 		height: 1px;
-	}
-}
-
-@keyframes blink {
-	0% {
-		opacity: 0.5;
-	}
-	50% {
-		opacity: 0.5;
-	}
-	51% {
-		opacity: 0;
-	}
-	100% {
-		opacity: 0;
 	}
 }
 
